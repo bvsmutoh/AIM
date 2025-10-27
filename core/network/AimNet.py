@@ -52,6 +52,7 @@ class AimNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.resnet = resnet34_mp()
+        self._interp_mode = "nearest"
         ##########################
         ### Encoder part - RESNET
         ##########################
@@ -201,6 +202,11 @@ class AimNet(nn.Module):
 
         self.decoder_final_l = nn.Conv2d(64,1,3,padding=1)
 
+    def _unpool(self, tensor, indices, target):
+        if torch.onnx.is_in_onnx_export():
+            return F.interpolate(tensor, size=target.shape[2:], mode=self._interp_mode)
+        return F.max_unpool2d(tensor, indices, kernel_size=2, stride=2, output_size=target.size())
+
         
     def forward(self, input):
 
@@ -243,14 +249,14 @@ class AimNet(nn.Module):
         #####################################
         bb = self.bridge_block(e4)
         d4_l = self.decoder4_l(torch.cat((bb, e4),1))
-        d3_l = F.max_unpool2d(d4_l, id4, kernel_size=2, stride=2)
+        d3_l = self._unpool(d4_l, id4, e3)
         d3_l = self.decoder3_l(torch.cat((d3_l, e3),1))
-        d2_l = F.max_unpool2d(d3_l, id3, kernel_size=2, stride=2)
+        d2_l = self._unpool(d3_l, id3, e2)
         d2_l = self.decoder2_l(torch.cat((d2_l, e2),1))
-        d1_l  = F.max_unpool2d(d2_l, id2, kernel_size=2, stride=2)
+        d1_l  = self._unpool(d2_l, id2, e1)
         d1_l = self.decoder1_l(torch.cat((d1_l, e1),1))
-        d0_l  = F.max_unpool2d(d1_l, id1, kernel_size=2, stride=2)
-        d0_l  = F.max_unpool2d(d0_l, id0, kernel_size=2, stride=2)
+        d0_l  = self._unpool(d1_l, id1, e0p)
+        d0_l  = self._unpool(d0_l, id0, e0)
         d0_l = self.decoder0_l(torch.cat((d0_l, e0),1))
         d0_l = d0_l+d0_l*d0_g_spatial_sigmoid
         d0_l = self.decoder_final_l(d0_l)
@@ -258,5 +264,5 @@ class AimNet(nn.Module):
         ##########################
         ### Fusion net - G/L
         ##########################
-        fusion_sigmoid = get_masked_local_from_global(global_sigmoid, local_sigmoid)
+        fusion_sigmoid = (local_sigmoid * global_sigmoid[:, 1:2] + global_sigmoid[:, 2:3]).clamp(0.0, 1.0)
         return global_sigmoid, local_sigmoid, fusion_sigmoid

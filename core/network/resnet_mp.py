@@ -215,7 +215,7 @@ def resnet34_mp(**kwargs):
     `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`
     """
     model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
-    checkpoint = torch.load(PRETRAINED_R34_MP)
+    checkpoint = torch.load(PRETRAINED_R34_MP, map_location=torch.device("cpu"))
     model.load_state_dict(checkpoint)
     return model
 
